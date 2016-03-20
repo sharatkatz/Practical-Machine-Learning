@@ -11,4 +11,7 @@ I modeled, in this assignment, to classify the activity performed by an individu
 6.	I used random forest technique to build the model; built 4 forests of 50 trees each.
 7.	And then produced results from calculating accuracy on training and validation datasets.
 
+NOTE: Contents of html file uploaded in repository (Prediction_Assignment.html) can be copied locally in notepad and saved as .htm to look at the knitted document. 	
+
+
 
