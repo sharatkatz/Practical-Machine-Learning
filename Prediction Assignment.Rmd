@@ -1,0 +1,154 @@
+---
+title: "Prediction Assignment"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# R Markdown
+##### I modeled, in this assignment, to classify the activity performed by an individual based on the data given. I utilized Random Forest method to build, validate and submit predicted classes for 20 cases in the test data set provided
+
+
+Clear workspace and load libraries
+```{r }
+rm(list=ls()); gc();
+library(data.table)
+library(caret)
+library(ggplot2)
+library(tabplot)
+library(Hmisc)
+library(randomForest)
+library(foreach)
+```
+
+Input Files
+```{r }
+inD <- read.csv("./pml-training.csv", header=T, sep=",", na.strings = c("NA","","#DIV/0!"),strip.white = T)
+testing  <- read.csv("./pml-testing.csv", header=T, sep=",", na.strings = c("NA","","#DIV/0!"),strip.white = T)
+
+table(inD$classe)
+
+```
+##### Since, I did not intend to do any missing imputation, I excluded the variables whichever had any missings. I also excluded those variables which seemed like information of how the information was gathered and who participated in it
+
+
+Leaving out variables having missings
+Not doing missing value treatment/imputation
+```{r }
+featWithMissings <- names(which(sapply(inD, function(x) any(is.na(x)|x==""))==TRUE))
+```
+
+Take a look at the potential list of features to model
+```{r }
+inTr <- inD[,!(names(inD) %in% (featWithMissings))]
+```
+
+Quickly visualize data using tableplot function from tabplot package
+excluded for HTML file generation as it was getting big in size
+```{r}
+for (i in 1:6) {
+  jfrom <- (i-1)*10 + 1
+  jto <- jfrom + 9
+   if (jto <= ncol(inTr)) {
+     tableplot(inTr, jfrom:jto)
+   }
+    else { ( table(inTr, jfrom:ncol(inTr)))
+  }
+}
+```
+
+Above shows need to exclude first 8 variables for predictors
+```{r }
+pred_set1 <- inTr[, -(1:8)]
+```
+
+#####I noticed there were some 'total'-prefix variables in the data which had components in X, Y and Z space dimensions also in data. I excluded them as they did not bring in additional information to help in classification
+There is a clear pattern between total-prefix variables and its _x, _y, _z counterparts/components
+Both kind should not be included
+Taking out the total-prefix variables from set of predictors
+```{r }
+qplot(data=pred_set1, accel_dumbbell_y, total_accel_dumbbell, facets=.~classe)
+pred_set <- pred_set1[, !grepl("^total_", tolower(names(pred_set1)))]
+```
+
+
+#####Then, I created partition in data to train and validate the model as 70-30 split.
+#####Training data was scaled before modeling
+#####I used random forest technique to build the model; built 4 forests of 50 trees each.
+#####And then produced results from calculating accuracy on training and validation datasets.
+
+
+Partition
+```{r}
+set.seed(123)
+Part <- createDataPartition(pred_set$classe, p=0.7, list=F) 
+training <- pred_set[Part, ]
+trainingVal <- pred_set[-Part, ]
+
+R <- training[, -dim(training)[2]]
+L <- training$classe
+```
+
+Scaling the predictors
+```{r}
+normalize <- preProcess(R)
+R1 <- as.data.frame(predict(normalize, R))
+```
+
+Apply the scaling to validation data set
+```{r}
+trainingValR1 <- as.data.frame(predict(normalize, trainingVal[, -dim(trainingVal)[2]]))
+trainingValL <- trainingVal$classe
+```
+
+The combine function in the randomForest package will bind together different trained forests
+```{r}
+set.seed(1234)
+quickRF <- randomForest(R1, L, ntree=40, norm.votes=F)
+```
+
+
+Look for convergence of error rates for different classes of 'classe' and Out-of-bag error rate
+This helps in keeping a cap on number of trees to build for good prediction (in step above)
+by looking at where OOB stabilizes and reaches minimum
+```{r}
+plot(quickRF, main="Random Forest")
+```
+Also take a look at the variable importance plot
+```{r}
+varImpPlot(quickRF, main="Random Forest")
+```
+
+Replicate number of trees for 4 forests and combine
+```{r}
+model_rf <- foreach(ntree=rep(50,4), .combine=randomForest::combine) %dopar% {
+  rfM <- randomForest(R1, L, ntree=ntree, norm.votes=F, keep.inbag=TRUE) 
+}
+```
+
+Check accuracy of prediction on training and trainingVal datasets
+```{r}
+predictions1 <- predict(model_rf, newdata=R1)
+confusionMatrix(predictions1,L)
+
+predictions2 <- predict(model_rf, newdata=trainingValR1)
+confusionMatrix(predictions2,trainingValL)
+```
+
+Apply the scaling to test data set and do the predictions
+```{r}
+testingR1 <- as.data.frame(predict(normalize, testing[, names(testing) %in% names(pred_set)]))
+testPredictions <- predict(model_rf, newdata=testingR1)
+testPredictions
+```
+
+
+Decision taken
+
+This study shows that in-sample accuracy turned out to be perfect with 95% CI in the range of (0.9997, 1).
+Out of Sample accuracy was 0.9929 with 95% CI in the range of (0.9904, 0.9949). Error rate is reported as 0.71%.
+Since, Random Forest technique gave me near perfect accuracy, I did not attempt to test Gradient Boosting or Naive Bayes methods.
+
+
